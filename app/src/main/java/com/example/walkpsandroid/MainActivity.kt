@@ -13,8 +13,6 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.*
-import com.google.android.gms.tasks.Task
-
 
 class MainActivity : AppCompatActivity(), FetchAddressTask.OnTaskCompleted {
 

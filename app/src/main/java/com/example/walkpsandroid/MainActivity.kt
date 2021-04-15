@@ -3,21 +3,31 @@ package com.example.walkpsandroid
 import android.Manifest
 import android.animation.AnimatorInflater
 import android.animation.AnimatorSet
+import android.app.Activity
+import android.content.Intent
+import android.content.IntentSender
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Bundle
+import android.util.Log
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.*
+import com.google.android.gms.tasks.Task
 
 class MainActivity : AppCompatActivity(), FetchAddressTask.OnTaskCompleted {
 
     companion object {
+        private const val TAG = "Location Service"
+
         private const val REQUEST_LOCATION_PERMISSION = 55
+        private const val REQUEST_CHECK_SETTINGS = 104
         private const val TRACKING_LOCATION_KEY = "tracking_location"
     }
 
@@ -34,6 +44,7 @@ class MainActivity : AppCompatActivity(), FetchAddressTask.OnTaskCompleted {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var firstLocationRecord = true
     private var firstLocation: Location? = null
+    private lateinit var locationSettingsRequestBuilder: LocationSettingsRequest.Builder
 
     // Initialize the location callbacks.
     private lateinit var locationCallback: LocationCallback
@@ -52,6 +63,8 @@ class MainActivity : AppCompatActivity(), FetchAddressTask.OnTaskCompleted {
         rotateAnim?.setTarget(androidImageView)
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        setupSettingsClient()
 
         if (savedInstanceState != null) {
             trackingLocation = savedInstanceState
@@ -83,6 +96,19 @@ class MainActivity : AppCompatActivity(), FetchAddressTask.OnTaskCompleted {
                     )
                 }
             }
+
+            // When location service is turned off,
+            // LocationAvailability.isLocationAvailable will return false.
+            override fun onLocationAvailability(availability: LocationAvailability) {
+                val availabilityText = if (availability.isLocationAvailable) {
+                    "定位正常"
+                } else {
+                    "無法定位"
+                }
+
+                Toast.makeText(this@MainActivity, availabilityText, Toast.LENGTH_SHORT).show()
+                super.onLocationAvailability(availability)
+            }
         }
 
         getLocationButton?.setOnClickListener {
@@ -91,6 +117,91 @@ class MainActivity : AppCompatActivity(), FetchAddressTask.OnTaskCompleted {
                 stopTrackingLocation()
             } else {
                 startTrackingLocation()
+            }
+        }
+    }
+
+    private fun setupSettingsClient() {
+
+        locationSettingsRequestBuilder = LocationSettingsRequest.Builder()
+
+        val settingsResult: Task<LocationSettingsResponse> = LocationServices
+            .getSettingsClient(this).checkLocationSettings(locationSettingsRequestBuilder.build())
+
+        settingsResult.addOnCompleteListener { task ->
+            try {
+                val response: LocationSettingsResponse =
+                    task.getResult(ApiException::class.java)
+                // All location settings are satisfied. The client can initialize location
+                // requests here.
+                Toast.makeText(this, "Location is allowed", Toast.LENGTH_SHORT).show()
+            } catch (exception: ApiException) {
+                when (exception.statusCode) {
+
+                    LocationSettingsStatusCodes.RESOLUTION_REQUIRED -> {
+
+                        // Location settings are not satisfied. But could be fixed by showing the
+                        // user a dialog.
+                        try {
+                            // Cast to a resolvable exception.
+                            val resolvable: ResolvableApiException =
+                                exception as ResolvableApiException
+                            // Show the dialog by calling startResolutionForResult(),
+                            // and check the result in onActivityResult().
+                            resolvable.startResolutionForResult(
+                                this@MainActivity,
+                                REQUEST_CHECK_SETTINGS
+                            )
+                        } catch (e: IntentSender.SendIntentException) {
+                            // Ignore the error.
+                        } catch (e: ClassCastException) {
+                            // Ignore, should be an impossible error.
+                        }
+                    }
+
+                    LocationSettingsStatusCodes.SETTINGS_CHANGE_UNAVAILABLE -> {
+
+                        // Location settings are not satisfied. However, we have no way to fix the
+                        // settings so we won't show the dialog.
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        var states: LocationSettingsStates? = null
+        if (data != null) {
+             states = LocationSettingsStates.fromIntent(data)
+        }
+
+        Log.i(TAG, "isGpsPresent: ${states?.isGpsPresent}")
+        Log.i(TAG, "isGpsUsable: ${states?.isGpsUsable}")
+        Log.i(TAG, "isLocationPresent: ${states?.isLocationPresent}")
+        Log.i(TAG, "isLocationUsable: ${states?.isLocationUsable}")
+        Log.i(TAG, "isNetworkLocationPresent: ${states?.isNetworkLocationPresent}")
+        Log.i(TAG, "isNetworkLocationUsable: ${states?.isNetworkLocationUsable}")
+
+        when (requestCode) {
+            REQUEST_CHECK_SETTINGS -> {
+
+                when (resultCode) {
+                    Activity.RESULT_OK -> {
+                        // All required changes were successfully made
+                        Toast.makeText(this, "The user allow the app to access location", Toast.LENGTH_SHORT).show()
+                    }
+
+                    Activity.RESULT_CANCELED -> {
+                        // The user was asked to change settings, but chose not to
+                        Toast.makeText(this, "Still deny location service", Toast.LENGTH_SHORT).show()
+                    }
+
+                    else -> {
+                        // Ignore other cases.
+                    }
+                }
             }
         }
     }
@@ -185,6 +296,7 @@ class MainActivity : AppCompatActivity(), FetchAddressTask.OnTaskCompleted {
                 ) {
                     startTrackingLocation()
                 } else {
+                    Log.i(TAG, "沒權限")
                     Toast.makeText(
                         this,
                         R.string.location_permission_denied,
